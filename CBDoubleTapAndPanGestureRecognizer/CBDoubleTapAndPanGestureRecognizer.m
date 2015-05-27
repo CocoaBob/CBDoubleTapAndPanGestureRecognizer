@@ -37,67 +37,59 @@
 
 @implementation CBDoubleTapAndPanGestureRecognizer {
     NSTimer *_timeOutTimer;
+    CGPoint _firstPoint;
 }
 
 - (instancetype)initWithTarget:(id)target action:(SEL)action {
     if (self = [super initWithTarget:target action:action]) {
         _scalePerPoint = 0.01;
+        _timeoutInterval = 0.5;
+        _maxMovementAllowed = 10;
     }
     return self;
 }
 
 - (void)reset {
+    [super reset];
+    
     _scale = 1.0f;
 }
 
 - (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
+    [super touchesBegan:touches withEvent:event];
+    
     [self invalidateTimer];
-    if ([touches count] > 1) {
-        self.state = UIGestureRecognizerStateFailed;
-    } else {
-        UITouch *touch = [touches anyObject];
-        if (touch.tapCount == 1) {
-            _timeOutTimer = [NSTimer scheduledTimerWithTimeInterval:1.0f target:self selector:@selector(handleTimeOut) userInfo:nil repeats:NO];
-        } else if (touch.tapCount == 2) {
-            return;
-        } else {
+    
+    UITouch *touch = [touches anyObject];
+    if ([touches count] == 1 && touch.tapCount == 1 && self.state == UIGestureRecognizerStatePossible) {
+        _firstPoint = [touch locationInView:self.view];
+        _timeOutTimer = [NSTimer scheduledTimerWithTimeInterval:_timeoutInterval target:self selector:@selector(handleTimeOut) userInfo:nil repeats:NO];
+    } else if ([touches count] == 1 && touch.tapCount == 2) {
+        // Failed if touches are too distant
+        CGPoint secondPoint = [touch locationInView:self.view];
+        if (sqrt(pow(secondPoint.x - _firstPoint.x, 2) + pow(secondPoint.y - _firstPoint.y, 2)) > _maxMovementAllowed) {
             self.state = UIGestureRecognizerStateFailed;
         }
+    } else if ([touches count] > 1 || touch.tapCount > 2) {
+        // Failed if taps more than twice
+        self.state = UIGestureRecognizerStateFailed;
     }
 }
 
 - (void)touchesMoved:(NSSet *)touches withEvent:(UIEvent *)event {
+    [super touchesMoved:touches withEvent:event];
+    
     [self invalidateTimer];
+    
     UITouch *touch = [touches anyObject];
     if (touch.tapCount == 2) {
-        CGPoint point = [touch locationInView:nil];
-        CGPoint previousPoint = [touch previousLocationInView:nil];
-        CGFloat delta = 0;
-        if ([[[UIDevice currentDevice] systemVersion] compare:@"8.0" options:NSNumericSearch] == NSOrderedAscending) {
-            switch ([[UIApplication sharedApplication] statusBarOrientation]) {
-                case UIInterfaceOrientationLandscapeLeft:
-                    delta = previousPoint.x - point.x;
-                    break;
-                case UIInterfaceOrientationLandscapeRight:
-                    delta = point.x - previousPoint.x;
-                    break;
-                case UIInterfaceOrientationPortrait:
-                    delta = previousPoint.y - point.y;
-                    break;
-                case UIInterfaceOrientationPortraitUpsideDown:
-                    delta = point.y - previousPoint.y;
-                    break;
-                default:
-                    break;
-            }
-        }
-        else {
-            delta = previousPoint.y - point.y;
-        }
+        CGPoint point = [touch locationInView:self.view];
+        CGPoint previousPoint = [touch previousLocationInView:self.view];
+        CGFloat delta = previousPoint.y - point.y;
+        
         if (_direction == CBDoubleTapAndPanZoomInDirectionUp) {
             _scale = 1.0f + delta * _scalePerPoint;
-        }
-        else if (_direction == CBDoubleTapAndPanZoomInDirectionDown) {
+        } else if (_direction == CBDoubleTapAndPanZoomInDirectionDown) {
             _scale = 1.0f - delta * _scalePerPoint;
         }
         
@@ -113,26 +105,33 @@
 }
 
 - (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event {
+    [super touchesEnded:touches withEvent:event];
+    
     [self invalidateTimer];
-    UITouch *touch = [touches anyObject];
-    if (self.state == UIGestureRecognizerStatePossible &&
-        touch.tapCount < 2) {
-        _timeOutTimer = [NSTimer scheduledTimerWithTimeInterval:0.5f target:self selector:@selector(handleTimeOut) userInfo:nil repeats:NO];
-    }
-    else {
-        if (self.state == UIGestureRecognizerStateBegan ||
-            self.state == UIGestureRecognizerStateChanged) {
-            self.state = UIGestureRecognizerStateEnded;
-        } else {
-            self.state = UIGestureRecognizerStateFailed;
-        }
+    
+    if (self.state == UIGestureRecognizerStateBegan) {
+        self.state = UIGestureRecognizerStateCancelled;
+    } else if (self.state == UIGestureRecognizerStateChanged) {
+        self.state = UIGestureRecognizerStateEnded;
+    } else {
+        self.state = UIGestureRecognizerStateFailed;
     }
 }
 
 - (void)touchesCancelled:(NSSet *)touches withEvent:(UIEvent *)event {
+    [super touchesCancelled:touches withEvent:event];
+    
     [self invalidateTimer];
-    self.state = UIGestureRecognizerStateCancelled;
+    
+    if (self.state == UIGestureRecognizerStateBegan ||
+        self.state == UIGestureRecognizerStateChanged) {
+        self.state = UIGestureRecognizerStateCancelled;
+    } else {
+        self.state = UIGestureRecognizerStateFailed;
+    }
 }
+
+#pragma mark - Double tap timer
 
 - (void)invalidateTimer {
     if (_timeOutTimer) {
@@ -145,5 +144,29 @@
     [self invalidateTimer];
     self.state = UIGestureRecognizerStateFailed;
 }
+
+#pragma mark - Interaction with other gestures
+
+- (BOOL)canPreventGestureRecognizer:(UIGestureRecognizer *)preventedGestureRecognizer {
+    if ([preventedGestureRecognizer isKindOfClass:[UIPinchGestureRecognizer class]]) {
+        return NO;
+    } else {
+        return [super canPreventGestureRecognizer:preventedGestureRecognizer];
+    }
+}
+
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 70000
+- (BOOL)shouldBeRequiredToFailByGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer {
+    if ([otherGestureRecognizer isKindOfClass:[UIPanGestureRecognizer class]]) {
+        return YES;
+    } else {
+        if ([[self class] instancesRespondToSelector:_cmd]) {
+            return [super shouldBeRequiredToFailByGestureRecognizer:otherGestureRecognizer];
+        } else {
+            return NO;
+        }
+    }
+}
+#endif
 
 @end

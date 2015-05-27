@@ -43,6 +43,8 @@ typedef NS_ENUM(NSUInteger, CBDoubleTapAndPanZoomInDirection) {
 
 @property (nonatomic, assign) CBDoubleTapAndPanZoomInDirection direction;
 @property (nonatomic, assign) CGFloat scalePerPoint;
+@property (nonatomic, assign) CGFloat timeoutInterval;
+@property (nonatomic, assign) CGFloat maxMovementAllowed;
 
 @property (nonatomic, readonly) CGFloat scale;
 
