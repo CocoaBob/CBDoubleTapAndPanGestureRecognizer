@@ -12,8 +12,8 @@
 
 @interface DemoViewController () <UIScrollViewDelegate>
 
-@property (nonatomic, retain) UIImageView *imageView;
-@property (nonatomic, retain) UIScrollView *scrollView;
+@property (nonatomic, strong) UIImageView *imageView;
+@property (nonatomic, strong) UIScrollView *scrollView;
 
 @end
 
@@ -23,7 +23,7 @@
     [super viewDidLoad];
     
     // Set Scroll View
-    self.scrollView = [UIScrollView new];
+    self.scrollView = [DemoScrollView new];
     self.scrollView.delegate = self;
     self.scrollView.frame = self.view.frame;
     self.scrollView.alwaysBounceHorizontal = YES;
@@ -48,14 +48,17 @@
     doubleTapGestureRecognizer.numberOfTapsRequired = 2;
     doubleTapGestureRecognizer.numberOfTouchesRequired = 1;
     [self.scrollView addGestureRecognizer:doubleTapGestureRecognizer];
+    [singleTapGestureRecognizer requireGestureRecognizerToFail:doubleTapGestureRecognizer];
     
     CBDoubleTapAndPanGestureRecognizer *doubleTapAndPanGestureRecognizer = [[CBDoubleTapAndPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleDoubleTapAndPanGesture:)];
     doubleTapAndPanGestureRecognizer.direction = CBDoubleTapAndPanZoomInDirectionDown;
     doubleTapAndPanGestureRecognizer.scalePerPoint = 0.005;
     [self.scrollView addGestureRecognizer:doubleTapAndPanGestureRecognizer];
     [singleTapGestureRecognizer requireGestureRecognizerToFail:doubleTapAndPanGestureRecognizer];
+    [doubleTapGestureRecognizer requireGestureRecognizerToFail:doubleTapAndPanGestureRecognizer];
 }
 
+// For iOS < 8.0
 - (void)willAnimateRotationToInterfaceOrientation:(UIInterfaceOrientation)interfaceOrientation duration:(NSTimeInterval)duration {
     BOOL wasMinZoomScale = (self.scrollView.zoomScale == self.scrollView.minimumZoomScale);
     [self updateMinMaxZoomScales];
@@ -64,20 +67,27 @@
     }
 }
 
-- (void)viewWillLayoutSubviews {
-    CGPoint newCenter;
-    newCenter.x = MAX(CGRectGetWidth(self.imageView.frame), CGRectGetWidth(self.scrollView.bounds)) / 2.0f;
-    newCenter.y = MAX(CGRectGetHeight(self.imageView.frame), CGRectGetHeight(self.scrollView.bounds)) / 2.0f;
-    self.imageView.center = newCenter;
+// For iOS >= 8.0
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 80000
+- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
+    BOOL wasMinZoomScale = (self.scrollView.zoomScale == self.scrollView.minimumZoomScale);
+    [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
+    [coordinator animateAlongsideTransition:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+        [self updateMinMaxZoomScales];
+        if (wasMinZoomScale || self.scrollView.zoomScale < self.scrollView.minimumZoomScale) {
+            self.scrollView.zoomScale = self.scrollView.minimumZoomScale;
+        }
+    } completion:nil];
 }
+#endif
 
-#pragma mark UIScrollViewDelegate
+#pragma mark - UIScrollViewDelegate
 
 - (UIView *)viewForZoomingInScrollView:(UIScrollView *)scrollView {
     return self.imageView;
 }
 
-#pragma mark Gestures
+#pragma mark - Handle Gestures
 
 - (void)handleSingleTapGesture:(id)sender {
     BOOL statusBarWasHidden = [[UIApplication sharedApplication] isStatusBarHidden];
@@ -86,16 +96,17 @@
 
 - (void)handleDoubleTapGesture:(id)sender {
 	CGPoint newCenter = [(UIGestureRecognizer *)sender locationInView:self.imageView];
+    
     CGFloat newZoomScale;
     if (self.scrollView.zoomScale == self.scrollView.maximumZoomScale) {
-        newZoomScale = self.scrollView.maximumZoomScale / 2.0f;
+        newZoomScale = self.scrollView.minimumZoomScale;
     } else {
         newZoomScale = pow(2, floor(log2(self.scrollView.zoomScale))) * 2.0f;
     }
     
-    CGSize newSize;
-    newSize.width = CGRectGetWidth(self.scrollView.bounds) / newZoomScale;
-    newSize.height = CGRectGetHeight(self.scrollView.bounds) / newZoomScale;
+    CGSize newSize = self.scrollView.bounds.size;
+    newSize.width /= newZoomScale;
+    newSize.height /= newZoomScale;
     
     CGRect newRect;
     newRect.origin.x = newCenter.x - newSize.width / 2.0f;
@@ -105,18 +116,67 @@
     [self.scrollView zoomToRect:newRect animated:YES];
 }
 
-- (void)handleDoubleTapAndPanGesture:(id)sender {
-    CBDoubleTapAndPanGestureRecognizer *gesture = sender;
-    self.scrollView.zoomScale *= gesture.scale;
+- (void)handleDoubleTapAndPanGesture:(CBDoubleTapAndPanGestureRecognizer *)gestureRecognizer {
+    switch (gestureRecognizer.state) {
+        case UIGestureRecognizerStateBegan:
+        {
+            // Expand the range of zoom scale to support bounce
+            self.scrollView.minimumZoomScale /= 2.0f;
+            self.scrollView.maximumZoomScale *= 2.0f;
+                break;
+        }
+        case UIGestureRecognizerStateChanged:
+        {
+            self.scrollView.zoomScale *= gestureRecognizer.scale;
+            break;
+        }
+        case UIGestureRecognizerStateEnded:
+        case UIGestureRecognizerStateCancelled:
+        {
+            // Restore the original min/max zoom scales
+            self.scrollView.minimumZoomScale *= 2.0f;
+            self.scrollView.maximumZoomScale /= 2.0f;
+            
+            // Bounce back
+            if (self.scrollView.zoomScale < self.scrollView.minimumZoomScale) {
+                [self.scrollView setZoomScale:self.scrollView.minimumZoomScale animated:YES];
+            } else if (self.scrollView.zoomScale > self.scrollView.maximumZoomScale) {
+                [self.scrollView setZoomScale:self.scrollView.maximumZoomScale animated:YES];
+            }
+            break;
+        }
+        default:
+            break;
+    }
 }
 
-#pragma mark -
+#pragma mark - Routines
 
 - (void)updateMinMaxZoomScales {
     CGFloat minWidthScale = CGRectGetWidth(self.scrollView.bounds) / CGRectGetWidth(self.imageView.bounds);
     CGFloat minHeightScale = CGRectGetHeight(self.scrollView.bounds) / CGRectGetHeight(self.imageView.bounds);
     self.scrollView.minimumZoomScale = MIN(minWidthScale, minHeightScale);
     self.scrollView.maximumZoomScale = 1;
+}
+
+@end
+
+@implementation DemoScrollView
+
+- (void)setContentOffset:(CGPoint)contentOffset {
+    [super setContentOffset:contentOffset];
+    [self centerContentView];
+}
+
+- (void)centerContentView {
+    if ([self.delegate respondsToSelector:@selector(viewForZoomingInScrollView:)]) {
+        UIView *contentView = [self.delegate viewForZoomingInScrollView:self];
+        
+        CGPoint newCenter;
+        newCenter.x = MAX(CGRectGetWidth(contentView.frame), CGRectGetWidth(self.bounds)) / 2.0f;
+        newCenter.y = MAX(CGRectGetHeight(contentView.frame), CGRectGetHeight(self.bounds)) / 2.0f;
+        contentView.center = newCenter;
+    }
 }
 
 @end

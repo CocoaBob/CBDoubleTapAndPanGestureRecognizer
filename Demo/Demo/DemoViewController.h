@@ -11,3 +11,8 @@
 @interface DemoViewController : UIViewController
 
 @end
+
+
+@interface DemoScrollView : UIScrollView
+
+@end

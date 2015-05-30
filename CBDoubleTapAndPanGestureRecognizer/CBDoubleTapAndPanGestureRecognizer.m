@@ -44,7 +44,7 @@
     if (self = [super initWithTarget:target action:action]) {
         _scalePerPoint = 0.01;
         _timeoutInterval = 0.5;
-        _maxMovementAllowed = 10;
+        _offsetAllowed = 10;
     }
     return self;
 }
@@ -67,7 +67,7 @@
     } else if ([touches count] == 1 && touch.tapCount == 2) {
         // Failed if touches are too distant
         CGPoint secondPoint = [touch locationInView:self.view];
-        if (sqrt(pow(secondPoint.x - _firstPoint.x, 2) + pow(secondPoint.y - _firstPoint.y, 2)) > _maxMovementAllowed) {
+        if (sqrt(pow(secondPoint.x - _firstPoint.x, 2) + pow(secondPoint.y - _firstPoint.y, 2)) > _offsetAllowed) {
             self.state = UIGestureRecognizerStateFailed;
         }
     } else if ([touches count] > 1 || touch.tapCount > 2) {
@@ -107,9 +107,15 @@
 - (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event {
     [super touchesEnded:touches withEvent:event];
     
-    [self invalidateTimer];
+    UITouch *touch = [touches anyObject];
+    if (touches.count > 1 || touch.tapCount >= 2) {
+        self.state = UIGestureRecognizerStateFailed;
+        return;
+    }
     
-    if (self.state == UIGestureRecognizerStateBegan) {
+    if (self.state == UIGestureRecognizerStatePossible) {
+        // Do nothing
+    } else if (self.state == UIGestureRecognizerStateBegan) {
         self.state = UIGestureRecognizerStateCancelled;
     } else if (self.state == UIGestureRecognizerStateChanged) {
         self.state = UIGestureRecognizerStateEnded;
@@ -140,33 +146,11 @@
     }
 }
 
+// Failed if the 1st tap takes too much time
+// Failed if the 2nd tap comes too late
 - (void)handleTimeOut {
     [self invalidateTimer];
     self.state = UIGestureRecognizerStateFailed;
 }
-
-#pragma mark - Interaction with other gestures
-
-- (BOOL)canPreventGestureRecognizer:(UIGestureRecognizer *)preventedGestureRecognizer {
-    if ([preventedGestureRecognizer isKindOfClass:[UIPinchGestureRecognizer class]]) {
-        return NO;
-    } else {
-        return [super canPreventGestureRecognizer:preventedGestureRecognizer];
-    }
-}
-
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 70000
-- (BOOL)shouldBeRequiredToFailByGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer {
-    if ([otherGestureRecognizer isKindOfClass:[UIPanGestureRecognizer class]]) {
-        return YES;
-    } else {
-        if ([[self class] instancesRespondToSelector:_cmd]) {
-            return [super shouldBeRequiredToFailByGestureRecognizer:otherGestureRecognizer];
-        } else {
-            return NO;
-        }
-    }
-}
-#endif
 
 @end

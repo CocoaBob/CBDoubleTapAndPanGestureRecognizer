@@ -41,11 +41,11 @@ typedef NS_ENUM(NSUInteger, CBDoubleTapAndPanZoomInDirection) {
 
 @interface CBDoubleTapAndPanGestureRecognizer : UIGestureRecognizer
 
-@property (nonatomic, assign) CBDoubleTapAndPanZoomInDirection direction;
-@property (nonatomic, assign) CGFloat scalePerPoint;
-@property (nonatomic, assign) CGFloat timeoutInterval;
-@property (nonatomic, assign) CGFloat maxMovementAllowed;
+@property (nonatomic, assign) CBDoubleTapAndPanZoomInDirection direction;   // Default is moving up to zoom in
+@property (nonatomic, assign) CGFloat scalePerPoint;                        // Default is +0.01x for each point
+@property (nonatomic, assign) CGFloat timeoutInterval;                      // Default is 0.5 second
+@property (nonatomic, assign) CGFloat offsetAllowed;                        // Max allowed distance between 1st tap and 2nd tap, default is 10 points
 
-@property (nonatomic, readonly) CGFloat scale;
+@property (nonatomic, readonly) CGFloat scale;                              // The scale value compared to the last UIGestureRecognizerStateChanged state
 
 @end
